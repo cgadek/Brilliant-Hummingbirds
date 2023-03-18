@@ -1,0 +1,330 @@
+---
+title: "Brilliant Biogeography Wrange Wrangling"
+author: "Chauncey Gadek" 
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+    toc_depth: 5
+    code_folding: show
+    bibliography: true
+    #df_print: paged
+    #df_print: kable
+    #toc_float: true
+      #collapsed: false
+      #smooth_scroll: TRUE
+    theme: cosmo #spacelab #yeti #united #cosmo
+    highlight: tango
+  pdf_document:
+    df_print: kable
+fontsize: 12pt
+geometry: margin=0.25in
+always_allow_html: yes
+---
+
+```{=html}
+<style>
+/* HTML FORMATTING */
+h1, .h1, h2, .h2, h3, .h3, h4, .h4, h5, .h5 {
+  margin-top: 25px; /* space before each header */
+  font-weight: bold; /* bold headers */
+}
+</style>
+```
+```{R, echo=FALSE}
+# I set some GLOBAL R chunk options here.
+#   (to hide this message add "echo=FALSE" to the code chunk options)
+rm(list =ls (all = TRUE)) #This removes objects from global environ
+knitr::opts_chunk$set(echo=F, comment = NA, message = FALSE, warning = FALSE, width = 100)
+knitr::opts_chunk$set(fig.align = "center", fig.height = 4, fig.width = 6)
+
+```
+
+# Load Packages
+
+```{R, echo=F}
+library(reshape)
+library(reshape2)
+library(plyr)
+library(tidyr)
+library(gt)
+library(glue)
+library(dplyr)
+library(scales)
+library(letsR)
+library(car)
+library(rcompanion)
+library(GGally)
+library(Hmisc)
+library(gridExtra)
+library(stats)
+library(gplots)
+library(ggExtra)
+library(cowplot)
+library(wesanderson)
+library(colorspace)
+library(stats4) # Forces knitr to work when it's being wonky
+library(PMCMR) #Allows Kruskal-Wallis post-hocs
+library(effects)
+library(gridExtra)
+library(lattice)
+library(survival)
+library(fmsb)
+library(faraway)
+library(ape)
+library(data.table)
+#library(wBoot)
+library(ggridges)
+library(boot)
+library(faux)
+library(effsize)
+library(plotrix)
+library(colorspace)
+library(ggpubr)
+library(patchwork)
+library(ggdist)
+library(factoextra)
+library(tidyverse)
+library(readxl)
+
+
+# Mapping 
+library(raster)
+library(sp)
+library(rgdal)
+library(RStoolbox)
+library(prettymapr)
+library(viridis)
+library(rasterVis)
+library(maptools)
+library(sf)
+
+# Modeling packages 
+library(nlme)
+library(lme4)
+library(AICcmodavg)
+library(MuMIn)
+library(glmulti)
+library(reghelper)
+library(lsmeans)
+library(rsq) # get r-squared values from GLM
+library(r2glmm) # for R^2 values from lmer() and glmer()
+library(multcompView) # related to multiple comparisons?
+library(jtools) # interaction plots 
+library(interactions) # interaction plots 
+library(broom)
+library(stargazer) # model output tables
+library(ggeffects) # for estimating model predictions from mixed effects models
+library(MCMCglmm)
+library(bayesplot)
+library(rstan)
+library(Rcpp) # required for brms
+library(brms)
+library(magrittr)
+library(tidybayes)
+library(modelr)
+library(hexbin)
+library(ggExtra)
+library(rgl)
+library(readr)
+library(tidyverse)
+# Install remotes if not previously installed
+if(!"remotes" %in% installed.packages()[,"Package"]) install.packages("remotes")
+
+# Install rasterSp from Github if not previously installed
+if(!"rasterSp" %in% installed.packages()[,"Package"]) remotes::install_github("RS-eco/rasterSp", build_vignettes = T)
+library(rasterSp)
+# To run each time you load rstan
+options(mc.cores = parallel::detectCores()) # for core setup 
+rstan_options(auto_write = TRUE) # auto save  bare version of compiled Stan program to HD
+
+#Load in functions
+source("~/Dropbox/Gadek_custom_colors.R")
+source("~/Dropbox/ggplot_themes/ggplot_themes.R")
+#source(paste(getwd(),"/pal.R", sep=""))
+data("Phyllomedusa")
+
+#set theme
+theme_set(theme_arial_clean())
+
+#setup folder paths for less coding
+figures <- paste(getwd(), "/figures/", sep="")
+tables <- paste(getwd(), "/Tables/", sep="")
+models <- paste(getwd(), "/models/", sep="")
+results <- paste(getwd(), "/models/results/", sep="")
+```
+
+# Step 1. Download spatial data 
+```{r spatial data, message=F}
+countries = c("argentina", "bolivia", "brazil", "chile", "colombia", "ecuador", "guyana", "paraguay", "peru", "suriname", "uruguay", "venezuela")
+SA = do.call("merge", lapply(countries, function(x) raster::getData('alt', country=x, level=0,path="mapping/")))
+projection(SA) <- CRS("+init=epsg:4326") #Make sure raster and spp projections match
+plot(SA)
+
+```
+ 
+# Step 2. Species Data 
+Full SA BirdLife International dataset 2018 version comes in.dgb file and requires a few extra steps to use. Namely making sure the "All_Species" layer is present.
+```{r species data}
+
+
+#get list of all shape files in folder
+file_list <- list.files("mapping/Shapes_True_Brilliants", pattern = "*shp", full.names = TRUE)
+
+#import shapefiles
+shapefile_list <- lapply(file_list, read_sf)
+
+# for(i in 1:length(shapefile_list)){
+#   names(shapefile_list[[i]]) <-"SCINAME"
+# }
+
+#merge them
+True_brill <- SpatialPolygons(shapefile_list)
+
+data<-readOGR(dsn=gdb_file, layer= "Distribuciones_True_Brilliants")
+
+tbnames <- read_csv("data/True_brill_names.csv")
+tbnames <-tbnames%>%
+  pull()
+
+
+
+# The input file geodatabase
+#gdb_file =here::here("mapping", "Shapes_True_Brilliants")
+gdb_file = paste0("~/Dropbox/Research/", "/BOTW.gdb")
+
+# List all feature classes in a file geodatabase
+subset(ogrDrivers(), grepl("GDB", name))
+fc_list = ogrListLayers(gdb_file)
+print(fc_list)
+
+data <- st_read(gdb_file, layer ="All_Species" ) #This takes a long time, huge file!!!!
+# Read the feature class
+#data <- st_read(gdb_file, layer ="All_Species" ) #This takes a long time, huge file!!!!
+
+colnames(data)
+
+data2 <- data[,c(2,5,6,7)] # We need to keep columns 2,5,6,7 SCINAME, PRESENCE, ORIGIN, SEASONAL in order to use lets.presab
+colnames(data2)
+head(data2)
+
+# Save as shapefile
+#writeOGR(botw, dsn=paste0("~/Dropbox/Research", "/BirdLife_2018/"), layer="All_Species", driver="ESRI Shapefile")
+#botw <- spTransform(botw, CRS("+init=epsg:4326"))  #Make sure raster and spp projections match
+```
+
+
+```{r}
+#replace spaces in shape_file species names with underscore
+
+tbnames<-gsub('[[:digit:]]+', '', tbnames)
+data2$SCINAME  <- sub(" ", "_", data2$SCINAME)
+
+#Load tree
+brilliant_tree <- read.nexus("trees/Ster_Hylo_P11.trees")
+brilliant_tree <- sample(brilliant_tree, 1)[[1]]
+
+#remove numbers from tree tip labels
+brilliant_tree$tip.label <-gsub('[[:digit:]]+', '', brilliant_tree$tip.label)
+
+#some very annoying substrings here (in tree) that need to be replaced manually
+
+brilliant_tree$tip.label<-gsub("rubrfmnh", "rubricauda", brilliant_tree$tip.label) #Clytolaema_rubrnmh"
+brilliant_tree$tip.label<-gsub("heloisafmnh", "heloisa", brilliant_tree$tip.label) #Atthis_heloisafmnh
+brilliant_tree$tip.label<-gsub("longirost", "longirostris", brilliant_tree$tip.label) #Heliomaster_longirost
+brilliant_tree$tip.label<-gsub("polytmuscjc", "polytmus", brilliant_tree$tip.label) #Trochilus_polytmuscjc
+brilliant_tree$tip.label<-gsub("macroHM", "macrocerca", brilliant_tree$tip.label) #Hylonympha_macroHM
+brilliant_tree$tip.label<-gsub("lugens_", "lugens", brilliant_tree$tip.label)#Haplophaedia_lugens_
+brilliant_tree$tip.label<-gsub("pella_", "pella", brilliant_tree$tip.label)#Topaza_pella_
+brilliant_tree$tip.label<-gsub("cyanoJM", "cyanopectus", brilliant_tree$tip.label) #Sternoclyta_cyanoJM
+brilliant_tree$tip.label<-gsub("Caprimul_longirostrisrisB", "Systellura_longirostris", brilliant_tree$tip.label)#Caprimul_longirostrisB
+brilliant_tree$tip.label<-gsub("Streptop_zonaris_NMNHb", "Streptoprocne_zonaris", brilliant_tree$tip.label)#Streptop_zonaris_NMNHb
+brilliant_tree$tip.label<-gsub("Campylopt_hemileucurus", "Campylopterus_hemileucurus", brilliant_tree$tip.label)
+brilliant_tree$tip.label<-gsub("Sternoclyta_cyanoIC", "Sternoclyta_cyanopectus", brilliant_tree$tip.label)
+brilliant_tree$tip.label<-gsub("Glaucis_hirsuta", "Glaucis_hirsutus", brilliant_tree$tip.label)
+brilliant_tree$tip.label<-gsub("Anthrac_nigricollis", "Anthracothorax_nigricollis", brilliant_tree$tip.label)
+brilliant_tree$tip.label<-gsub("Lodiggesia_mirabilis", "Loddigesia_mirabilis", brilliant_tree$tip.label)
+brilliant_tree$tip.label<-gsub("Eriocnemis_vestita", "Eriocnemis_vestita", brilliant_tree$tip.label)
+brilliant_tree$tip.label<-gsub("Boissonn_flavescens", "Boissonneaua_flavescens", brilliant_tree$tip.label)
+brilliant_tree$tip.label<-gsub("Urosticte_benjamani", "Urosticte_benjamini", brilliant_tree$tip.label)
+brilliant_tree$tip.label<-gsub("Coeligena_lutetia", "Coeligena_lutetiae", brilliant_tree$tip.label)
+brilliant_tree$tip.label<-gsub("Urochroa_bouguerizmc", "Urochroa_bougueri", brilliant_tree$tip.label)
+brilliant_tree$tip.label<-gsub("Oreotroch estella", "Oreotrochilus_estella", brilliant_tree$tip.label)
+
+brilliant_tree$tip.label
+
+brilliant_tree <- keep.tip(brilliant_tree, tbnames)
+#brilliant_tree$tip.label  <- sub(" ", "_", brilliant_tree$tip.label)
+brilliant_tree$tip.label
+#looks good but I'm sure additional changes will be necessary to match with shapefile names
+```
+
+
+### Trim massive dataset to keep only birds in Brilliant phylogeny and data  variables we will use.
+```{r}
+#filter by breeding season If you want
+# botw.res <-data[data$SEASONAL==1,] # Resident ranges
+# botw.bre <- data[data$SEASONAL==2,] # Breeding ranges
+# 
+# brill.res <- botw.res%>%
+#   filter(SCINAME %in% brilliant_tree$tip.label)
+# 
+# brill.bre <- botw.bre%>%
+#   filter(SCINAME %in% brilliant_tree$tip.label)
+
+brill.all <-data2%>%
+  filter(SCINAME %in% tbnames)
+
+# Which species are not in shape files?
+# species <- as.data.frame(brilliant_tree$tip.label)
+# not.in <- species%>%
+#   filter(!`brilliant_tree$tip.label` %in% data2$SCINAME)
+# 
+# data2%>%
+#   filter(str_detect(SCINAME, "Oreotroch"))
+
+
+brill.all<-sf:::as_Spatial(brill.all)
+
+# brill.bre<- as_Spatial(brill.bre)
+# 
+# brill.res<- as_Spatial(brill.res)
+
+crs(brill.all) <-NA
+# crs(brill.res) <-NA
+# crs(brill.bre) <- NA
+#write these to shapefiles
+
+colnames(brill.all@data) <- c("binomial", "presence", "origin", "seasonal")
+head(brill.all)
+
+brill.all@data$binomial <- as.factor(brill.all@data$binomial)
+
+# writeSpatialShape(brill.res, fn="mapping/brill_res.shp")
+# writeSpatialShape(brill.bre, fn="mapping/brill_bre.shp")
+writeSpatialShape(brill.all, fn="mapping/brill_all.shp")
+
+brill.all <- readShapePoly(fn="mapping/brill_res")
+
+#Check if same class as example data
+class(brill.all)
+class(Phyllomedusa)
+
+```
+
+# Create matrix of presence absence using`letsR` package
+```{r}
+
+#This does not work for me. BUT I CAN RUN WITHIN THE FUNCTION AND EXTRACT PERTINENT RESULTS
+brill.mat <- lets.presab(brill.all, xmn = -88, xmx =-30, ymn=-58, ymx=17, resol = 0.1)
+#NEED TO OPEN FUNCTION AND RUN PIECE BY PIECE#This is result
+
+save(brill.mat, file="mapping/brill_pa.R")
+
+#Extract matrix and save separately as well
+Brill_PA_Mat <- brill.mat$Presence_and_Absence_Matrix
+write.table(Brill_PA_Mat, file="data/Brill_PA_Mat_.txt", sep="\t")
+
+plot(brill.mat)
+```
